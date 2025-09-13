@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+  <title>Andreea-Florina Tutunaru - Portfolio 2025</title>
+
+ <style>
+  :root{
+    --bg-grad: linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+    --safe-bottom: max(env(safe-area-inset-bottom, 0px), 14px);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{min-height:100%}
+  html{background:var(--bg-grad)}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    background:var(--bg-grad);
+    display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+    padding:clamp(8px,2vw,20px)
+  }
+  .header{color:#fff;text-align:center;margin:clamp(6px,1.4vw,16px) 0}
+  .header h1{
+    font-size:clamp(1.4rem,2.4vw,2.2rem);
+    margin-bottom:4px;text-shadow:2px 2px 4px rgba(0,0,0,.28)
+  }
+  .header p{opacity:.95;font-size:clamp(.85rem,1.2vw,.95rem)}
+  .flipbook-wrap{
+    background:transparent; /* no white slab */
+    border-radius:12px;
+    box-shadow:0 18px 60px rgba(0,0,0,.32);
+    padding:clamp(6px,0.8vw,10px);
+    max-width:100vw; max-height:100vh; /* caps handled in JS */
+    position:relative
+  }
+  #flipbook{margin:0 auto}
+  #flipbook .page{background:transparent;box-shadow:0 4px 10px rgba(0,0,0,.08);backface-visibility:hidden;will-change:transform;transition-timing-function:cubic-bezier(.4,0,.2,1) !important;}
+  #flipbook canvas{display:block;width:100%;height:100%}
+
+  .controls{
+    display:flex;gap:14px;justify-content:center;align-items:center;
+    margin-top:clamp(8px,1.6vw,12px);flex-wrap:wrap;
+    padding-bottom:var(--safe-bottom);
+  }
+  .controls button{
+    background:var(--bg-grad);color:#fff;border:0;
+    padding:clamp(8px,1.2vw,12px) clamp(16px,2vw,22px);
+    border-radius:999px;cursor:pointer;
+    font-size:clamp(.9rem,1.4vw,1rem);
+    transition:.2s;box-shadow:0 6px 18px rgba(0,0,0,.22)
+  }
+  .controls button:hover{transform:translateY(-2px)}
+  .page-info{
+    background:rgba(0,0,0,.78);color:#fff;
+    padding:clamp(6px,.9vw,8px) clamp(10px,1.2vw,12px);
+    border-radius:999px;font-size:clamp(.85rem,1.2vw,.95rem)
+  }
+
+  .loading{color:#fff;text-align:center;font-size:1.05rem}
+  .loading-spinner{
+    border:3px solid rgba(255,255,255,.3);border-top:3px solid #fff;border-radius:50%;
+    width:38px;height:38px;animation:spin 1s linear infinite;margin:18px auto
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+
+
+  <!-- jQuery + Turn.js + PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-easing/1.4.1/jquery.easing.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
+</head>
+<body>
+  <div class="header">
+    <h1>Portfolio 2025</h1>
+    <p>Andreea-Florina Tutunaru | UX/UI & Graphic Design</p>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="loading-spinner"></div>
+    <p>Loading portfolio...</p>
+  </div>
+
+  <div class="flipbook-wrap" id="wrap" style="display:none">
+    <div id="flipbook"></div>
+    <div class="controls">
+      <button id="prevBtn">← Previous</button>
+      <span class="page-info">Page <span id="cur">1</span> of <span id="total">1</span></span>
+      <button id="nextBtn">Next →</button>
+    </div>
+  </div>
+
+  <script>
+  // ================== CONFIG ==================
+  const PDF_URL = 'portfolio.pdf';   // keep next to index.html (or change to '/assets/portfolio.pdf')
+
+  // Visual size caps (book will fill up to these)
+  const MAX_BOOK_WIDTH  = 2600;   // px
+  const MAX_BOOK_HEIGHT = 1700;   // px
+
+  // Rendering quality: canvas pixels per CSS pixel
+  // Effective scale = devicePixelRatio * QUALITY_MULT, capped by MAX_DPR.
+  const QUALITY_MULT = 2.5;          // 1.0 (fast) … 2.0 (retina-sharp). Tweak if needed.
+  const MAX_DPR      = 3;            // safety cap to avoid RAM explosions
+  // ============================================
+
+  let pdfDoc = null, aspect = 1.4142;
+  let pageW = 900, pageH = 1273;
+  let turnReady = false;
+
+  // track active render tasks per page so we can cancel safely
+  const renderTasks = {};
+  const renderKey = {}; // stores "width@scale" used
+
+  function outputScale(){
+    const dpr = window.devicePixelRatio || 1;
+    return Math.min(MAX_DPR, dpr * QUALITY_MULT);
+  }
+
+  async function loadPDF(){
+    try{
+      pdfDoc = await pdfjsLib.getDocument(PDF_URL).promise;
+      document.getElementById('total').textContent = pdfDoc.numPages;
+
+      const p1 = await pdfDoc.getPage(1);
+      const vp1 = p1.getViewport({ scale: 1 });
+      aspect = vp1.height / vp1.width;
+
+      const $book = $('#flipbook');
+      for(let i=1;i<=pdfDoc.numPages;i++){
+        const $page = $('<div/>',{class:'page', id:`page-${i}`});
+        $page.append($('<canvas/>',{id:`canvas-${i}`}));
+        $book.append($page);
+      }
+
+      $book.turn({
+        display: 'single',
+          autoCenter: true,
+          acceleration: true,
+          gradients: true,
+          elevation: 70,
+          duration: 1000,                 // ↑ longer = more fluent
+          easing: 'easeInOutCubic',       // options: 'easeInOutQuad', 'easeOutQuart', 'linear', etc.
+          when: {
+            turned: function(e, page){
+              $('#cur').text(page);
+              renderNearby(page);
+          }
+        }
+      });
+
+      turnReady = true;
+      resizeBook();
+
+      await renderPage(1);
+      if (pdfDoc.numPages >= 2) await renderPage(2);
+
+      document.getElementById('loading').style.display='none';
+      document.getElementById('wrap').style.display='block';
+
+      // Debounced resize (prevents overlapping renders)
+      let rTimer;
+      $(window).on('resize', ()=>{
+        clearTimeout(rTimer);
+        rTimer = setTimeout(()=>{
+          resizeBook();
+          renderNearby($('#flipbook').turn('page'));
+        }, 120);
+      });
+
+      // === Extra listener (iOS URL-bar/keyboard visual viewport changes) ===
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', () => {
+          clearTimeout(rTimer);
+          rTimer = setTimeout(() => {
+            resizeBook();
+            renderNearby($('#flipbook').turn('page'));
+          }, 120);
+        }, { passive: true });
+      }
+
+      $('#prevBtn').on('click', ()=>$('#flipbook').turn('previous'));
+      $('#nextBtn').on('click', ()=>$('#flipbook').turn('next'));
+
+      $(document).on('keydown', e=>{
+        if(e.key==='ArrowLeft')  $('#flipbook').turn('previous');
+        if(e.key==='ArrowRight') $('#flipbook').turn('next');
+      });
+
+    }catch(err){
+      console.error(err);
+      document.getElementById('loading').innerHTML =
+        '<p style="color:#ffb3b3">Failed to load. Hard refresh (Ctrl/Cmd+Shift+R) after publishing.</p>';
+    }
+  }
+
+  function resizeBook(){
+    if(!turnReady) return;
+
+    const { w: wFactor, h: hFactor } = getSizeFactors();
+    const ww = Math.min(window.innerWidth  * wFactor, MAX_BOOK_WIDTH);
+    const wh = Math.min(window.innerHeight * hFactor, MAX_BOOK_HEIGHT);
+
+    // largest single page that fits while keeping PDF aspect
+    pageW = Math.min(ww - 12 /*wrap padding approx*/, wh / aspect);
+    pageH = pageW * aspect;
+    $('#flipbook').turn('size', pageW, pageH);
+  }
+
+  // === Add this helper (decides size factors per breakpoint) ===
+  function getSizeFactors(){
+    const w = window.innerWidth;
+    // Return how much of the viewport we allow the book to occupy (width & height)
+    if (w >= 1600) return { w: 0.62, h: 0.78 };   // large desktop (smaller, airy)
+    if (w >= 1280) return { w: 0.70, h: 0.82 };   // desktop
+    if (w >= 1024) return { w: 0.78, h: 0.86 };   // small desktop / big tablet
+    if (w >= 768)  return { w: 0.90, h: 0.90 };   // tablet
+    if (w >= 480)  return { w: 0.96, h: 0.92 };   // big phones
+    return            { w: 0.98, h: 0.90 };       // small phones
+  }
+
+  async function renderPage(n){
+    if(!pdfDoc || n<1 || n>pdfDoc.numPages) return;
+
+    const canvas = document.getElementById(`canvas-${n}`);
+    if(!canvas) return;
+
+    const baseScale = pageW; // CSS width target
+    const scaleKey  = outputScale().toFixed(2);
+    const key       = Math.round(baseScale) + '@' + scaleKey;
+    if(renderKey[n] === key && !renderTasks[n]) return;
+
+    // replacd the cancel block with a cancel and wait
+    if (renderTasks[n]) {
+    const prev = renderTasks[n];
+    try { prev.cancel(); } catch (_) {}
+    try { await prev.promise; } catch (_) {}  // wait until fully stopped
+    renderTasks[n] = null;
+  }
+    const page = await pdfDoc.getPage(n);
+    const vp1  = page.getViewport({ scale: 1 });
+    const cssScale = pageW / vp1.width;              // how big the page appears in CSS pixels
+    const outScale = outputScale();                   // how many device pixels per CSS pixel
+    const vp   = page.getViewport({ scale: cssScale * outScale });
+
+    // Set canvas *pixel* size to match viewport, but keep CSS size = page box
+    canvas.width  = Math.ceil(vp.width);
+    canvas.height = Math.ceil(vp.height);
+    canvas.style.width  = Math.round(pageW) + 'px';
+    canvas.style.height = Math.round(pageH) + 'px';
+
+    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    const task = page.render({ canvasContext: ctx, viewport: vp });
+    task.__key = key;
+    renderTasks[n] = task;
+
+    try{
+      await task.promise;
+      renderKey[n] = key; // remember what we rendered at
+      // Skip if the exact same render is already running
+      if (renderTasks[n]?.__key === key) return;
+    }catch(err){
+      if (err?.name !== 'RenderingCancelledException') console.error(err);
+    }finally{
+      renderTasks[n] = null;
+    }
+  }
+
+  function renderNearby(cur){
+    [cur-1, cur, cur+1].forEach(p=>{
+      if(p>0 && p<=pdfDoc.numPages) renderPage(p);
+    });
+  }
+
+  window.addEventListener('DOMContentLoaded', loadPDF);
+  </script>
+</body>
+</html>
