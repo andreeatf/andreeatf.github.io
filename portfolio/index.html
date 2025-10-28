@@ -8,7 +8,7 @@
 
  <style>
   :root{
-    --bg-grad: #808080;
+    --bg-grad: #2f2f2f;
     --safe-bottom: max(env(safe-area-inset-bottom, 0px), 14px);
   }
   *{margin:0;padding:0;box-sizing:border-box}
@@ -51,6 +51,13 @@
     transition:.2s;box-shadow:0 6px 18px rgba(0,0,0,.22)
   }
   .controls button:hover{transform:translateY(-2px)}
+  /* Make prev/next buttons match the page-info pill */
+  #prevBtn, #nextBtn{
+    background: rgba(0,0,0,.78);
+    color: #fff;
+    box-shadow: none;
+  }
+
   .page-info{
     background:rgba(0,0,0,.78);color:#fff;
     padding:clamp(6px,.9vw,8px) clamp(10px,1.2vw,12px);
